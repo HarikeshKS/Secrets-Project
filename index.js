@@ -7,9 +7,10 @@ import { Strategy } from "passport-local";
 import GoogleStrategy from "passport-google-oauth2";
 import session from "express-session";
 import env from "dotenv";
+import { sql } from "@vercel/postgres";
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 5000;
 const saltRounds = 10;
 env.config();
 
@@ -29,14 +30,14 @@ app.use(express.static("public"));
 app.use(passport.initialize());
 app.use(passport.session());
 
-const db = new pg.Client({
-  user: process.env.POSTGRES_USER,
-  host: process.env.POSTGRES_HOST,
-  database: process.env.POSTGRES_DATABASE,
-  password: process.env.POSTGRES_PASSWORD,
-  port: process.env.POSTGRES_PORT,
-});
-db.connect();
+// const db = new pg.Client({
+//   user: process.env.POSTGRES_USER,
+//   host: process.env.POSTGRES_HOST,
+//   database: process.env.POSTGRES_DATABASE,
+//   password: process.env.POSTGRES_PASSWORD,
+//   port: process.env.POSTGRES_PORT,
+// });
+// db.connect();
 
 app.get("/", (req, res) => {
   res.render("home.ejs");
@@ -63,10 +64,8 @@ app.get("/secrets", async (req, res) => {
   if (req.isAuthenticated()) {
     //TODO: Update this to pull in the user secret to render in secrets.ejs
     try {
-      const result = await db.query(
-        `SELECT secret FROM users WHERE email = $1`,
-        [req.user.email]
-      );
+      const result =
+        await sql`SELECT secret FROM users WHERE email = ${req.user.email}`;
       console.log(result);
       const secret = result.rows[0].secret;
       if (secret) {
@@ -120,9 +119,7 @@ app.post("/register", async (req, res) => {
   const password = req.body.password;
 
   try {
-    const checkResult = await db.query("SELECT * FROM users WHERE email = $1", [
-      email,
-    ]);
+    const checkResult = await sql `SELECT * FROM users WHERE email = ${email}`;
 
     if (checkResult.rows.length > 0) {
       req.redirect("/login");
@@ -131,7 +128,7 @@ app.post("/register", async (req, res) => {
         if (err) {
           console.error("Error hashing password:", err);
         } else {
-          const result = await db.query(
+          const result = await sql(
             "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING *",
             [email, hash]
           );
@@ -154,10 +151,7 @@ app.post("/submit", async function (req, res) {
   const submittedSecret = req.body.secret;
   console.log(req.user);
   try {
-    await db.query(`UPDATE users SET secret = $1 WHERE email = $2`, [
-      submittedSecret,
-      req.user.email,
-    ]);
+    await sql`UPDATE users SET secret = ${submittedSecret} WHERE email = ${req.user.email}`;
     res.redirect("/secrets");
   } catch (err) {
     console.log(err);
@@ -168,9 +162,7 @@ passport.use(
   "local",
   new Strategy(async function verify(username, password, cb) {
     try {
-      const result = await db.query("SELECT * FROM users WHERE email = $1 ", [
-        username,
-      ]);
+      const result = await sql `SELECT * FROM users WHERE email = ${username}`;
       if (result.rows.length > 0) {
         const user = result.rows[0];
         const storedHashedPassword = user.password;
@@ -207,14 +199,9 @@ passport.use(
     async (accessToken, refreshToken, profile, cb) => {
       try {
         console.log(profile);
-        const result = await db.query("SELECT * FROM users WHERE email = $1", [
-          profile.email,
-        ]);
+        const result = await sql `SELECT * FROM users WHERE email = ${profile.email}`;
         if (result.rows.length === 0) {
-          const newUser = await db.query(
-            "INSERT INTO users (email, password) VALUES ($1, $2)",
-            [profile.email, "google"]
-          );
+          const newUser = await sql`INSERT INTO users (email, password) VALUES ('${profile.email}', 'google')`;
           return cb(null, newUser.rows[0]);
         } else {
           return cb(null, result.rows[0]);
